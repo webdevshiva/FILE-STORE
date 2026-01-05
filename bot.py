@@ -902,8 +902,8 @@ async def main():
     bot = TelegramBot()
     await bot.initialize()
     
-    # Start cleanup scheduler
-    asyncio.create_task(bot.start_cleanup_scheduler())
+    # Start cleanup scheduler in background
+    cleanup_task = asyncio.create_task(bot.start_cleanup_scheduler())
     
     # Create application
     application = Application.builder().token(config.BOT_TOKEN).build()
@@ -914,9 +914,29 @@ async def main():
     # Setup handlers
     bot.setup_handlers(application)
     
-    # Start polling
-    print("🤖 Bot is starting...")
-    await application.run_polling()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    # Start polling (PROPER WAY FOR RENDER)
+    print("🤖 Bot is starting on Render...")
+    
+    try:
+        # Start the bot
+        await application.initialize()
+        await application.start()
+        
+        if application.updater:
+            await application.updater.start_polling()
+        
+        print("✅ Bot is now running!")
+        
+        # Keep the bot running indefinitely
+        while True:
+            await asyncio.sleep(3600)  # Sleep for 1 hour
+        
+    except KeyboardInterrupt:
+        print("\n🛑 Bot shutting down...")
+    finally:
+        # Proper shutdown
+        if application.updater:
+            await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
+        cleanup_task.cancel()
