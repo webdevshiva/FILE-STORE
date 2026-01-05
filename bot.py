@@ -14,7 +14,11 @@ from telegram.error import TelegramError, BadRequest
 
 import config
 from database import Database
-from keyboards import *
+# Option A: Try relative import
+try:
+    from .keyboards import *
+except ImportError:
+    from keyboards import *
 from utils import ShortenerAPI, Validators, CaptionManager, AlertSystem, TimeUtils, MembershipChecker
 
 import os
@@ -852,4 +856,5 @@ async def main():
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
+
     asyncio.run(main())
