@@ -896,6 +896,10 @@ class TelegramBot:
                 print(f"❌ Cleanup error: {e}")
 
 # ==================== MAIN FUNCTION ====================
+import asyncio
+from aiohttp import web
+
+# Add this at the START of main()
 async def main():
     # Start dummy web server for Render detection
     app = web.Application()
@@ -948,4 +952,5 @@ async def main():
         await application.stop()
         await application.shutdown()
         cleanup_task.cancel()
+
 
