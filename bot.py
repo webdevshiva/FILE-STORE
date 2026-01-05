@@ -897,6 +897,14 @@ class TelegramBot:
 
 # ==================== MAIN FUNCTION ====================
 async def main():
+    # Start dummy web server for Render detection
+    app = web.Application()
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8080)
+    await site.start()
+    print("✅ Dummy web server started on port 8080")
+    
     """Start the bot"""
     # Create bot instance
     bot = TelegramBot()
@@ -940,3 +948,4 @@ async def main():
         await application.stop()
         await application.shutdown()
         cleanup_task.cancel()
+
