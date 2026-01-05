@@ -734,199 +734,173 @@ async def cancel_batch(self, update: Update, context: ContextTypes.DEFAULT_TYPE)
         # Log event
         await self.db.log_event("web_verification_success", user.id, {"session_id": session_id})
     
-    # ==================== MAIN HANDLERS ====================
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start command with rate limiting"""
-        user = update.effective_user
-        
-        # Rate limit check
-        allowed, message = await self.check_rate_limit(user.id)
-        if not allowed:
-            await update.message.reply_text(message)
-            return
-        
-        await self.db.get_or_create_user(user.id, user.username, user.full_name)
-        
-        # Check for link parameter
-        args = context.args
-        if not args:
-            await update.message.reply_text("👋 Welcome! Access files using admin-generated links only.")
-            return
-        
-        param = args[0]
-        
-        # Handle different start parameters
-        if param.startswith("verify_"):
-            await self.handle_verification_webhook(update, context)
-        elif param.startswith("batch_"):
-            await self.handle_batch_link(update, context, param[6:])
-        else:
-            await self.handle_single_link(update, context, param)
+  # ==================== MAIN HANDLERS ====================
+async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /start command with rate limiting"""
+    user = update.effective_user
     
-    async def handle_single_link(self, update: Update, context: ContextTypes.DEFAULT_TYPE, link_id: str):
-        """Handle single file link access with rate limiting"""
-        user = update.effective_user
-        
-        # Rate limit check
-        allowed, message = await self.check_rate_limit(user.id, "link_access")
-        if not allowed:
-            await update.message.reply_text(message)
-            return
-        
-        # Log access attempt
-        await self.db.log_event("link_access", user.id, {"link_id": link_id})
-        
-        # Check active session
-        session = await self.db.get_active_session(user.id)
-        if session:
-            # Active session - send file directly
-            link_info = await self.db.get_link_info(link_id)
-            if not link_info:
-                await update.message.reply_text("❌ Invalid or expired link.")
-                return
-            
-            await self.send_single_file(update, context, link_info, user.id)
-            await self.db.increment_link_uses(link_id)
-            return
-        
-        # No active session - check force join
-        await self.check_force_join(update, context, link_id)
+    # Rate limit check
+    allowed, message = await self.check_rate_limit(user.id)
+    if not allowed:
+        await update.message.reply_text(message)
+        return
     
-    async def start_verification(self, update: Update, context: ContextTypes.DEFAULT_TYPE, 
-                                link_id: str, is_batch: bool = False):
-        """Start verification process with rate limiting"""
-        user = update.effective_user
-        
-        # Rate limit check
-        allowed, message = await self.check_rate_limit(user.id, "verification")
-        if not allowed:
-            await update.message.reply_text(message)
-            return
-        
-        # Create verification token
-        token = await self.db.create_verification_token(user.id)
-        
-        # Generate verification URL for web page
-        # In production, this points to your verification landing page
-        verification_url = f"https://your-domain.com/verify/{token}"
-        
-        # Shorten URL
-        short_url = await self.shortener.shorten_url(verification_url)
-        
-        if not short_url:
-            # Shortener API failed
-            await self.handle_shortener_failure(update, user.id)
-            return
-        
-        # Store data
-        context.user_data["pending_link"] = link_id
-        context.user_data["is_batch"] = is_batch
-        context.user_data["verification_token"] = token
-        
-        # Send verification message
-        keyboard = get_verification_keyboard(short_url)
-        
-        await update.message.reply_text(
-            "🔐 Verify & Get Unlimited Access\n\n"
-            "Unlock unlimited files & batches for the next 6 hours.\n\n"
-            "⚠️ Open the link properly and wait 35+ seconds.\n"
-            "Bypass attempts are detected.",
-            reply_markup=keyboard
-        )
-        # ========== ADD THIS METHOD ==========
-    def setup_handlers(self, application):
-        """Setup all bot handlers"""
-        from telegram.ext import (
-            CommandHandler, MessageHandler, CallbackQueryHandler,
-            ConversationHandler, filters
-        )
- 
-        # Start command
-        application.add_handler(CommandHandler("start", self.start_command))
-        
-        # Admin commands
-        application.add_handler(CommandHandler("admin", self.admin_command))
-        
-        # Admin conversation handlers
-        admin_conv = ConversationHandler(
-            entry_points=[
-                CallbackQueryHandler(self.config_shortener_callback, pattern="^config_shortener$"),
-                CallbackQueryHandler(self.edit_caption_callback, pattern="^edit_caption$"),
-                CommandHandler("addchannel", self.add_database_channel_command)
-            ],
-            states={
-                ADD_DB_CHANNEL: [MessageHandler(filters.TEXT | filters.FORWARDED, self.process_add_database_channel)],
-                SET_CAPTION: [MessageHandler(filters.TEXT, self.process_caption_edit)],
-                SET_SHORTENER: [MessageHandler(filters.TEXT, self.process_shortener_config)]
-            },
-            fallbacks=[CommandHandler("cancel", self.cancel_admin_action)],
-        )
-        application.add_handler(admin_conv)
-        
-        # Batch creation conversation
-        batch_conv = ConversationHandler(
-            entry_points=[CommandHandler("batch", self.batch_command)],
-            states={
-                ASK_START_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_start_msg)],
-                ASK_END_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.ask_end_msg)],
-            },
-            fallbacks=[CommandHandler("cancel", self.cancel_batch)],
-        )
-        application.add_handler(batch_conv)
-        
-        # Callback queries
-        application.add_handler(CallbackQueryHandler(self.callback_handler))
-        
-        # Message handlers for admin edits
-        application.add_handler(MessageHandler(
-            filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
-            self.handle_admin_messages
-        ))
-        
-        # Unknown commands
-        application.add_handler(MessageHandler(filters.COMMAND, self.unknown_command))
+    await self.db.get_or_create_user(user.id, user.username, user.full_name)
     
-    async def handle_admin_messages(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle admin text messages for configurations"""
-        if update.effective_user.id not in config.ADMIN_IDS:
-            return
-        
-        if context.user_data.get("editing_caption"):
-            await self.process_caption_edit(update, context)
-        elif context.user_data.get("configuring_shortener"):
-            await self.process_shortener_config(update, context)
+    # Check for link parameter
+    args = context.args
+    if not args:
+        await update.message.reply_text("👋 Welcome! Access files using admin-generated links only.")
+        return
     
-    async def cancel_admin_action(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Cancel admin action"""
-        await update.message.reply_text("❌ Action cancelled.")
-        
-        # Clean up
-        keys = ["editing_caption", "configuring_shortener", "shortener_api_url"]
-        for key in keys:
-            if key in context.user_data:
-                del context.user_data[key]
-        
-        return ConversationHandler.END
+    param = args[0]
+    
+    # Handle different start parameters
+    if param.startswith("verify_"):
+        await self.handle_verification_webhook(update, context)
+    elif param.startswith("batch_"):
+        await self.handle_batch_link(update, context, param[6:])
+    else:
+        await self.handle_single_link(update, context, param)
 
+async def handle_single_link(self, update: Update, context: ContextTypes.DEFAULT_TYPE, link_id: str):
+    """Handle single file link access with rate limiting"""
+    user = update.effective_user
+    
+    # Rate limit check
+    allowed, message = await self.check_rate_limit(user.id, "link_access")
+    if not allowed:
+        await update.message.reply_text(message)
+        return
+    
+    # Log access attempt
+    await self.db.log_event("link_access", user.id, {"link_id": link_id})
+    
+    # Check active session
+    session = await self.db.get_active_session(user.id)
+    if session:
+        # Active session - send file directly
+        link_info = await self.db.get_link_info(link_id)
+        if not link_info:
+            await update.message.reply_text("❌ Invalid or expired link.")
+            return
+        
+        await self.send_single_file(update, context, link_info, user.id)
+        await self.db.increment_link_uses(link_id)
+        return
+    
+    # No active session - check force join
+    await self.check_force_join(update, context, link_id)
+
+async def start_verification(self, update: Update, context: ContextTypes.DEFAULT_TYPE, 
+                            link_id: str, is_batch: bool = False):
+    """Start verification process with rate limiting"""
+    user = update.effective_user
+    
+    # Rate limit check
+    allowed, message = await self.check_rate_limit(user.id, "verification")
+    if not allowed:
+        await update.message.reply_text(message)
+        return
+    
+    # Create verification token
+    token = await self.db.create_verification_token(user.id)
+    
+    # Generate verification URL for web page
+    # In production, this points to your verification landing page
+    verification_url = f"https://your-domain.com/verify/{token}"
+    
+    # Shorten URL
+    short_url = await self.shortener.shorten_url(verification_url)
+    
+    if not short_url:
+        # Shortener API failed
+        await self.handle_shortener_failure(update, user.id)
+        return
+    
+    # Store data
+    context.user_data["pending_link"] = link_id
+    context.user_data["is_batch"] = is_batch
+    context.user_data["verification_token"] = token
+    
+    # Send verification message
+    keyboard = get_verification_keyboard(short_url)
+    
+    await update.message.reply_text(
+        "🔐 Verify & Get Unlimited Access\n\n"
+        "Unlock unlimited files & batches for the next 6 hours.\n\n"
+        "⚠️ Open the link properly and wait 35+ seconds.\n"
+        "Bypass attempts are detected.",
+        reply_markup=keyboard
+    )
+
+# ========== SETUP_HANDLERS METHOD ==========
+def setup_handlers(self, application):
+    """Setup all bot handlers"""
+    from telegram.ext import (
+        CommandHandler, MessageHandler, CallbackQueryHandler,
+        ConversationHandler, filters
+    )
+
+    # Start command
+    application.add_handler(CommandHandler("start", self.start_command))
+    
+    # Admin command
+    application.add_handler(CommandHandler("admin", self.admin_command))
+    
+    # Callback queries (simplified for now)
+    application.add_handler(CallbackQueryHandler(self.callback_handler))
+    
+    # Unknown commands
+    application.add_handler(MessageHandler(filters.COMMAND, self.unknown_command))
+
+async def handle_admin_messages(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle admin text messages for configurations"""
+    if update.effective_user.id not in config.ADMIN_IDS:
+        return
+    
+    if context.user_data.get("editing_caption"):
+        await self.process_caption_edit(update, context)
+    elif context.user_data.get("configuring_shortener"):
+        await self.process_shortener_config(update, context)
+
+async def cancel_admin_action(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancel admin action"""
+    await update.message.reply_text("❌ Action cancelled.")
+    
+    # Clean up
+    keys = ["editing_caption", "configuring_shortener", "shortener_api_url"]
+    for key in keys:
+        if key in context.user_data:
+            del context.user_data[key]
+    
+    return ConversationHandler.END
+
+# ========== CLEANUP SCHEDULER ==========
 async def start_cleanup_scheduler(self):
     """Start periodic cleanup tasks"""
+    import asyncio
+    from datetime import datetime
+    
     while True:
         await asyncio.sleep(3600)  # 1 hour
         try:
             await self.db.cleanup_expired_sessions()
             await self.db.cleanup_old_tokens()
-            await self.db.cleanup_old_analytics(30)
+            # Comment out if cleanup_old_analytics doesn't exist
+            # await self.db.cleanup_old_analytics(30)
             print(f"✅ Cleanup completed at {datetime.now()}")
         except Exception as e:
             print(f"❌ Cleanup error: {e}")
 
+# ========== END OF TelegramBot CLASS ==========
 async def main():
     """Start the bot"""
     # Create bot instance
     bot = TelegramBot()
     await bot.initialize()
 
-    # ✅ Start cleanup scheduler
+    # ✅ Start cleanup scheduler (uncomment when ready)
     # asyncio.create_task(bot.start_cleanup_scheduler())
     
     # Create application
@@ -939,17 +913,9 @@ async def main():
     bot.setup_handlers(application)
     
     # Start polling
-    print("🤖 Bot is starting with ALL features...")
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
-    
-    # Keep running
-    await asyncio.Event().wait()
+    print("🤖 Bot is starting...")
+    await application.run_polling()
 
 if __name__ == "__main__":
-
+    import asyncio
     asyncio.run(main())
-
-
-
