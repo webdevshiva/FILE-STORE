@@ -835,7 +835,7 @@ async def main():
     await bot.initialize()
 
     # ✅ Start cleanup scheduler
-    asyncio.create_task(bot.start_cleanup_scheduler())
+    # asyncio.create_task(bot.start_cleanup_scheduler())
     
     # Create application
     application = Application.builder().token(config.BOT_TOKEN).build()
