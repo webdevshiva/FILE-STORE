@@ -95,6 +95,71 @@ class TelegramBot:
         # Return the conversation state (ASK_START_MSG should be defined at top)
         from bot import ASK_START_MSG  # Import your conversation state
         return ASK_START_MSG
+async def ask_start_msg(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Process start message link"""
+    from utils import Validators
+    
+    link = update.message.text
+    parsed = Validators.parse_telegram_link(link)
+    
+    if not parsed:
+        await update.message.reply_text("❌ Invalid link format.")
+        return ASK_START_MSG
+    
+    context.user_data["batch_start"] = parsed
+    await update.message.reply_text("✅ First message saved.\n\nNow send the LAST file link.")
+    
+    return ASK_END_MSG
+
+async def ask_end_msg(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Process end message link and create batch"""
+    from utils import Validators
+    from datetime import datetime
+    
+    link = update.message.text
+    parsed = Validators.parse_telegram_link(link)
+    
+    if not parsed:
+        await update.message.reply_text("❌ Invalid link format.")
+        return ASK_END_MSG
+    
+    start_info = context.user_data.get("batch_start")
+    
+    # Validate
+    if not start_info:
+        await update.message.reply_text("❌ Session expired. Start over.")
+        return ConversationHandler.END
+    
+    # Create batch link (simplified - adjust based on your database methods)
+    try:
+        batch_id = await self.db.create_batch_link(
+            start_info.get("channel_id", 0),
+            start_info.get("message_id", 0),
+            parsed.get("message_id", 0),
+            update.effective_user.id
+        )
+        
+        bot_username = (await context.bot.get_me()).username
+        batch_link = f"https://t.me/{bot_username}?start=batch_{batch_id}"
+        
+        await update.message.reply_text(
+            f"✅ Batch Link Generated!\n\n"
+            f"🔗 Link: {batch_link}"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+    
+    return ConversationHandler.END
+
+async def cancel_batch(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancel batch creation"""
+    await update.message.reply_text("❌ Batch creation cancelled.")
+    
+    # Clean up
+    if "batch_start" in context.user_data:
+        del context.user_data["batch_start"]
+    
+    return ConversationHandler.END
     
     # ==================== RATE LIMITING ====================
     async def check_rate_limit(self, user_id: int, action: str = "message") -> Tuple[bool, str]:
@@ -880,4 +945,5 @@ async def main():
 if __name__ == "__main__":
 
     asyncio.run(main())
+
 
