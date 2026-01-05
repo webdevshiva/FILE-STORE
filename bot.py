@@ -833,9 +833,14 @@ async def cancel_batch(self, update: Update, context: ContextTypes.DEFAULT_TYPE)
             "Bypass attempts are detected.",
             reply_markup=keyboard
         )
-    
+        # ========== ADD THIS METHOD ==========
     def setup_handlers(self, application):
         """Setup all bot handlers"""
+        from telegram.ext import (
+            CommandHandler, MessageHandler, CallbackQueryHandler,
+            ConversationHandler, filters
+        )
+ 
         # Start command
         application.add_handler(CommandHandler("start", self.start_command))
         
@@ -945,5 +950,6 @@ async def main():
 if __name__ == "__main__":
 
     asyncio.run(main())
+
 
 
