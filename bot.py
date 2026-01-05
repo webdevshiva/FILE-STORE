@@ -73,6 +73,28 @@ class TelegramBot:
         """Initialize database and components"""
         await self.db.init_db()
         self.caption_manager = CaptionManager(self.db)
+
+        # ==================== BATCH COMMAND ====================
+    async def batch_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Start batch link creation"""
+        from config import ADMIN_IDS
+        
+        user = update.effective_user
+        
+        # Check if user is admin
+        if user.id not in ADMIN_IDS:
+            await update.message.reply_text("❌ Access denied.")
+            return
+        
+        await update.message.reply_text(
+            "📦 Batch Link Creation\n\n"
+            "Please send the Telegram message link\n"
+            "of the FIRST file in the batch."
+        )
+        
+        # Return the conversation state (ASK_START_MSG should be defined at top)
+        from bot import ASK_START_MSG  # Import your conversation state
+        return ASK_START_MSG
     
     # ==================== RATE LIMITING ====================
     async def check_rate_limit(self, user_id: int, action: str = "message") -> Tuple[bool, str]:
@@ -858,3 +880,4 @@ async def main():
 if __name__ == "__main__":
 
     asyncio.run(main())
+
